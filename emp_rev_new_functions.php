@@ -23,7 +23,7 @@
         $employeesProoflinkColor = $this->getColor($employeesProoflinkCell);
 		$tmpArr = explode("?", $employeesProoflinkCell['formattedValue']);
         $newEmployeesProoflink = $tmpArr[0];
-         if ( !empty($newEmployeesProoflink) && ($employeesProoflinkColor == 'yellow' || $employeesProoflinkColor == 'green') ){
+         if ( (!empty($newEmployeesProoflink)) && ($employeesProoflinkColor == 'yellow' || $employeesProoflinkColor == 'green') ){
           
             $tmpArr = explode("?", $this->rowCompany['employees_prooflink']);
             $oldEmployeesProoflink = $tmpArr[0];
@@ -69,7 +69,7 @@
         $revenueProoflinkColor = $this->getColor($revenueProoflinkCell);
 		$tmpArr = explode("?", $revenueProoflinkCell['formattedValue']);
         $newRevenueProoflink = $tmpArr[0];
-        if ( !empty($newRevenueProoflink) && ($revenueProoflinkColor == 'yellow' || $revenueProoflinkColor == 'green') ){
+        if ( (!empty($newRevenueProoflink)) && ($revenueProoflinkColor == 'yellow' || $revenueProoflinkColor == 'green') ){
             
             $tmpArr = explode("?", $this->rowCompany['revenue_prooflink']);
             $oldRevenueProoflink = $tmpArr[0];
