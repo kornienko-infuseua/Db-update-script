@@ -11,7 +11,7 @@ error_reporting(E_ERROR);
 define('CREDENTIALS_PATH', __DIR__ . '/service-account-credentials.json');
 
 $spreadsheetId = '1SxVEjLlU_cRxkiXLFH_QHfk1RqAIXLuas9Rm7lu9I3o';
-
+//changes 1.1
 class SpreadSheets
 {
     public $service;
