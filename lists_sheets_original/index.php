@@ -29,7 +29,7 @@ class SpreadSheets
     public static $db = null;
     public static $processId;
     public static $mandatoryColumns = ['email', 'title', 'phone', 'prooflink', 'company', 'employees', 'employees_prooflink', 'revenue', 'revenue_prooflink'];
-
+//changes 3.0
     public function __construct($spreadsheetId, $params = array())
     {
         $this->sleepSeconds = 1;
