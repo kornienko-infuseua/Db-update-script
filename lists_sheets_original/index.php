@@ -60,7 +60,7 @@ class SpreadSheets
         $this->service = new Google_Service_Sheets($this->client);
         $this->valid = $this->tryGetSheets($spreadsheetId, $params);
     }
-// some changes made by Alexey
+
     public function tryGetSheets($spreadsheetId, $params)
     {
         try {
@@ -282,10 +282,12 @@ class SpreadSheets
         if ($emailColor == 'red') {
             $this->saveMessage("The contact is marked as bad data", $linkId);
 
-            $query = "UPDATE `emails_status` e1\n"
-                . "INNER JOIN `emails_status` e2 USING (`contact_id`)\n"
-                . "SET e1.`valid` = 4, e1.`date_valid` = NOW()\n"
-                . "WHERE e2.`id` = " . $this->rowEmails['id'];
+            $query = "UPDATE `emails_status` e\n"
+                . "LEFT JOIN `contacts` c ON c.id = e.`contact_id`\n"
+                . "SET e.`valid` = IF (e.`valid` NOT IN (0,9), 4, e.`valid`),\n"
+                . "e.`date_valid` = IF (e.`valid` NOT IN (0,9), NOW(), e.`date_valid`),\n"
+                . "c.`valid` = 4\n"
+                . "WHERE e.`id` = {$this->rowEmails['id']} OR (e.`contact_id` = {$this->rowEmails['contact_id']} AND NOT e.`contact_id` = 0)";
             self::$db->exec($query);
             return false;
         }
@@ -381,35 +383,21 @@ class SpreadSheets
                 self::$db->exec($query);
             }
 
-            $commentColName = false;
-            if ($this->isCellExists('pv comment')) {
-                $commentColName = 'pv comment';
-            }
-            if ($this->isCellExists('PV comment')) {
-                $commentColName = 'PV comment';
-            }
-            if (!$commentColName) {
+            $pvCommentCell = $this->getCellByColumnNames(['pv comment', 'PV comment', 'pv_comment']);
+            if (!$pvCommentCell) {
                 return;
             }
 
-            $callDateColName = false;
-            if ($this->isCellExists('call date')) {
-                $callDateColName = 'call date';
-            }
-            if ($this->isCellExists('call_date')) {
-                $callDateColName = 'call_date';
-            }
-            if (!$callDateColName) {
+            $callDateCell = $this->getCellByColumnNames(['call date', 'call_date']);
+            if (!$callDateCell) {
                 return;
             }
 
-            $callDateCell = $this->rowValues[$this->columnsNumbers[$callDateColName]];
             $callDate = $callDateCell['formattedValue'];
             if (empty($callDate)) {
                 return;
             }
 
-            $pvCommentCell = $this->rowValues[$this->columnsNumbers[$commentColName]];
             $pvCommentValue = $pvCommentCell['formattedValue'];
             $pvCommentsArr = array(
                 'LC (CD)',
@@ -533,6 +521,8 @@ class SpreadSheets
                     }
                     self::$db->exec("UPDATE emails_status set company_id='$newCompanyId' WHERE id = '{$this->rowEmails['id']}'");
                     $this->rowEmails['company_id'] = $newCompanyId;
+                    $query = "SELECT * FROM companies WHERE id=" . $this->rowEmails['company_id'];
+                    $this->rowCompany = self::$db->query($query)->fetch();
                 }
             }
         };
@@ -549,23 +539,8 @@ class SpreadSheets
 
         $employeesCell = $this->rowValues[$this->columnsNumbers['employees']];
         $employeesColor = $this->getColor($employeesCell);
-        if ($employeesColor == 'yellow' || $employeesColor == 'green') {
-            /*            if (!$this->isCellExists('employees_prooflink')) {
-                            $this->saveMessage("Employees color is $employeesColor, but Employees Prooflink is empty", $linkId);
-                            return;
-                        }*/
-            $employeesProoflinkCell = $this->rowValues[$this->columnsNumbers['employees_prooflink']];
-            $newEmployeesProoflink = $employeesProoflinkCell['formattedValue'];
-            if (empty($newEmployeesProoflink)) {
-                $this->saveMessage("Employees color is $employeesColor, but Employees Prooflink is empty", $linkId);
-                return;
-            }
+        if ($employeesColor == 'yellow' && $employeesCell['formattedValue'] != '' ) {
             list($employeesMin, $employeesMax) = $this::getMinMax($employeesCell['formattedValue']);
-            if ($this->rowCompany['verified'] > 0 && ($this->rowCompany['employees_min'] != $employeesMin || $this->rowCompany['employees_max'] != $employeesMax)) {
-                $this->saveMessage("Verified is L or V or VM and Employees is changed", $linkId);
-                return;
-            }
-
             $query = "UPDATE companies SET employees_min=$employeesMin, employees_max=$employeesMax WHERE id = " . $this->rowEmails['company_id'];
             self::$db->exec($query);
         }
@@ -579,22 +554,27 @@ class SpreadSheets
 
         $employeesProoflinkCell = $this->rowValues[$this->columnsNumbers['employees_prooflink']];
         $employeesProoflinkColor = $this->getColor($employeesProoflinkCell);
-        if ($employeesProoflinkColor == 'yellow' || $employeesProoflinkColor == 'green') {
-            $tmpArr = explode("?", $employeesProoflinkCell['formattedValue']);
-            $newEmployeesProoflink = $tmpArr[0];
-            $tmpArr = explode("?", $this->rowCompany['employees_prooflink']);
+        $tmpArr = explode('?', $employeesProoflinkCell['formattedValue']);
+        $newEmployeesProoflink = $tmpArr[0];
+        if ($newEmployeesProoflink && ($employeesProoflinkColor == 'yellow' || $employeesProoflinkColor == 'green')) {
+
+            $tmpArr = explode('?', $this->rowCompany['employees_prooflink']);
             $oldEmployeesProoflink = $tmpArr[0];
-            if ($oldEmployeesProoflink != $newEmployeesProoflink && $oldEmployeesProoflink) {
-                $this->saveMessage("Employees Prooflink is changed", $linkId);
-                return;
+            if ($oldEmployeesProoflink != $newEmployeesProoflink ) {
+                if ($employeesProoflinkColor == 'green') {
+                    return;
+                }
+                if ($this->rowCompany['verified'] == 4) {
+                    $this->saveMessage('New Employees PL for VM company', $linkId);
+                } else {
+                    $newEmployeesProoflink = addslashes($newEmployeesProoflink);
+                    $query = "UPDATE companies SET employees_prooflink='$newEmployeesProoflink' WHERE id = " . $this->rowEmails['company_id'];
+                    self::$db->exec($query);	
+                    $this->processEmployees($linkId);
+                }
+            } else {
+                $this->processEmployees($linkId);
             }
-            if ($newEmployeesProoflink && !$oldEmployeesProoflink) {
-                $newEmployeesProoflink = addslashes($employeesProoflinkCell['formattedValue']);
-                $query = "UPDATE companies SET employees_prooflink='$newEmployeesProoflink' WHERE id = " . $this->rowEmails['company_id'];
-                self::$db->exec($query);
-                $this->saveMessage("Employees Prooflink is added", $linkId);
-            }
-            $this->processEmployees($linkId);
         }
     }
 
@@ -606,22 +586,7 @@ class SpreadSheets
 
         $revenueCell = $this->rowValues[$this->columnsNumbers['revenue']];
         $revenueColor = $this->getColor($revenueCell);
-        if ($revenueColor == 'yellow' || $revenueColor == 'green') {
-            /*            if (!$this->isCellExists('revenue_prooflink')) {
-                            $this->saveMessage("Revenue Prooflink is empty", $linkId);
-                            return;
-                        }*/
-            $revenueProoflinkCell = $this->rowValues[$this->columnsNumbers['revenue_prooflink']];
-            $newRevenueProoflink = $revenueProoflinkCell['formattedValue'];
-            if (empty($newRevenueProoflink)) {
-                $this->saveMessage("Revenue Prooflink is empty", $linkId);
-                return;
-            }
-            list($revenueMin, $revenueMax) = $this::getMinMax($revenueCell['formattedValue']);
-            if ($this->rowCompany['verified'] > 1 && ($this->rowCompany['revenue_min'] != $revenueMin || $this->rowCompany['revenue_max'] != $revenueMax)) {
-                $this->saveMessage("Verified is V or VM and Revenue is changed", $linkId);
-                return;
-            }
+        if ($revenueColor == 'yellow' && $revenueCell['formattedValue'] != '' ) {
 
             list($revenueMin, $revenueMax) = $this::getMinMax($revenueCell['formattedValue']);
             $query = "UPDATE companies SET revenue_min=$revenueMin, revenue_max=$revenueMax WHERE id = " . $this->rowEmails['company_id'];
@@ -629,6 +594,7 @@ class SpreadSheets
         }
     }
 
+    //  TODO: combine process Employees and Revenue
     public function processRevenueProoflink($linkId)
     {
         $columnName = 'revenue_prooflink';
@@ -638,23 +604,26 @@ class SpreadSheets
 
         $revenueProoflinkCell = $this->rowValues[$this->columnsNumbers[$columnName]];
         $revenueProoflinkColor = $this->getColor($revenueProoflinkCell);
-        if ($revenueProoflinkColor == 'yellow' || $revenueProoflinkColor == 'green') {
-            $tmpArr = explode("?", $revenueProoflinkCell['formattedValue']);
-            $newRevenueProoflink = $tmpArr[0];
-            $tmpArr = explode("?", $this->rowCompany['revenue_prooflink']);
+        $tmpArr = explode('?', $revenueProoflinkCell['formattedValue']);
+        $newRevenueProoflink = $tmpArr[0];
+        if ($newRevenueProoflink && ($revenueProoflinkColor == 'yellow' || $revenueProoflinkColor == 'green') ) {
+            $tmpArr = explode('?', $this->rowCompany['revenue_prooflink']);
             $oldRevenueProoflink = $tmpArr[0];
-            if ($oldRevenueProoflink != $newRevenueProoflink && $oldRevenueProoflink) {
-                $this->saveMessage("Revenue Prooflink is changed", $linkId);
-                return;
+            if ($oldRevenueProoflink != $newRevenueProoflink ) {
+                if ($revenueProoflinkColor == 'green') {
+                    return;
+                }
+                if ($this->rowCompany['verified'] == 4) {
+                    $this->saveMessage('New Revenue PL for VM company', $linkId);
+                } else  {
+                    $newRevenueProoflink = addslashes($newRevenueProoflink);
+                    $query = "UPDATE companies SET revenue_prooflink='$newRevenueProoflink' WHERE id = " . $this->rowEmails['company_id'];
+                    self::$db->exec($query);			
+                    $this->processRevenue($linkId);
+                }
+            } else {
+                $this->processRevenue($linkId);
             }
-
-            if ($newRevenueProoflink && !$oldRevenueProoflink) {
-                $newRevenueProoflink = addslashes($revenueProoflinkCell['formattedValue']);
-                $query = "UPDATE companies SET revenue_prooflink='$newRevenueProoflink' WHERE id = " . $this->rowEmails['company_id'];
-                self::$db->exec($query);
-                $this->saveMessage("Revenue Prooflink is added", $linkId);
-            }
-            $this->processRevenue($linkId);
         }
     }
 
@@ -695,6 +664,16 @@ class SpreadSheets
         }
 
         return true;
+    }
+
+    public function getCellByColumnNames($columnNames)
+    {
+        foreach ($columnNames as $columnName) {
+            if ($this->isCellExists($columnName)) {
+                return $this->rowValues[$this->columnsNumbers[$columnName]];
+            }
+        }
+        return false;
     }
 
     public static function getMinMax($str)
