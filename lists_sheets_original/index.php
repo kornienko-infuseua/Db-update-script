@@ -305,12 +305,11 @@ class SpreadSheets
         $cellColor = $this->getColor($cell);
         if ($cellColor == 'yellow' || $cellColor == 'green') {
             $newValue = addslashes($cell['formattedValue']);
-            $resCountry = self::$db->query("SELECT id FROM countries WHERE name = '$newValue'");
-            if (!$resCountry) {
-                $resCountry = self::$db->query("SELECT country_id FROM countries_aliases WHERE alias = '$newValue'");
+            $newCountryId = self::$db->query("SELECT id FROM countries WHERE name = '$newValue'")->fetch(\PDO::FETCH_COLUMN);
+            if (!$newCountryId) {
+                $newCountryId = self::$db->query("SELECT country_id FROM countries_aliases WHERE alias = '$newValue'")->fetch(\PDO::FETCH_COLUMN);
             }
-            if ($resCountry) {
-                $newCountryId = $resCountry->fetch(\PDO::FETCH_COLUMN);
+            if ($newCountryId) {
                 $updated = self::$db->exec("UPDATE emails_status set country_id=$newCountryId WHERE email = '{$this->rowEmails['email']}'");
                 if ($updated > 0) {
                     $query = "UPDATE `contacts` SET `address` = '', `city` = '', `state` = '', `zip` = '' WHERE `id` = '{$this->rowEmails['contact_id']}'";
@@ -367,7 +366,7 @@ class SpreadSheets
         }
     }
 
-    public function processPhone()
+    public function processPhone($linkId)
     {
         $colName = 'phone';
         if (!$this->isCellExists($colName)) {
@@ -406,9 +405,14 @@ class SpreadSheets
                 'LC (operator/transfer failed)',
             );
             if (in_array($pvCommentValue, $pvCommentsArr)) {
-                $callDate = date('Y-m-d', strtotime($callDate));
-                $query = "UPDATE emails_status set phone_verified='{$callDate}' WHERE id = " . $this->rowEmails['id'];
-                self::$db->exec($query);
+                $callTimestamp = strtotime($callDate);
+                if ($callTimestamp < time() - 60 * 24 * 60 * 60) { // before 60 days ago
+                    $this->saveMessage("Bad or too old call_date for email: {$this->rowEmails['email']}", $linkId);
+                } else {
+                    $callDate = date('Y-m-d', $callTimestamp);
+                    $query = "UPDATE `emails_status` set `phone_verified` = '{$callDate}' WHERE `id` = " . $this->rowEmails['id'];
+                    self::$db->exec($query);
+                }
             }
         }
     }
@@ -569,7 +573,7 @@ class SpreadSheets
                 } else {
                     $newEmployeesProoflink = addslashes($newEmployeesProoflink);
                     $query = "UPDATE companies SET employees_prooflink='$newEmployeesProoflink' WHERE id = " . $this->rowEmails['company_id'];
-                    self::$db->exec($query);	
+                    self::$db->exec($query);
                     $this->processEmployees($linkId);
                 }
             } else {
@@ -618,7 +622,7 @@ class SpreadSheets
                 } else  {
                     $newRevenueProoflink = addslashes($newRevenueProoflink);
                     $query = "UPDATE companies SET revenue_prooflink='$newRevenueProoflink' WHERE id = " . $this->rowEmails['company_id'];
-                    self::$db->exec($query);			
+                    self::$db->exec($query);
                     $this->processRevenue($linkId);
                 }
             } else {
@@ -916,7 +920,7 @@ foreach ($linksRows as $linksRow) {
             $listSpreadSheets->processColumnByName('zip');
 
             $listSpreadSheets->processTitle($linksRow['id']);
-            $listSpreadSheets->processPhone();
+            $listSpreadSheets->processPhone($linksRow['id']);
             $listSpreadSheets->processProoflink();
             $listSpreadSheets->processCompany($linksRow['id']);
 
